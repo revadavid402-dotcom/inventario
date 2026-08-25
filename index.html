@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="UTF-8" />
@@ -289,11 +289,20 @@
   async function syncRecord(record, idx) {
     if (!scriptUrl) return;
     try {
+      // Usamos text/plain para evitar CORS preflight con Apps Script
+      // (application/json dispara un preflight OPTIONS que Apps Script no soporta)
       await fetch(scriptUrl, {
-        method: 'POST', mode: 'no-cors',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ articulo: record.articulo, partida: record.partida, cantidad: record.cantidad, fecha: record.fecha })
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'text/plain' },
+        body: JSON.stringify({
+          articulo: record.articulo,
+          partida:  record.partida,
+          cantidad: record.cantidad,
+          fecha:    record.fecha
+        })
       });
+      // no-cors siempre devuelve respuesta "opaque" — asumimos exito si no hay excepcion
       records[idx].synced = true;
       saveLocal();
       updateSyncIcon(idx, true);
