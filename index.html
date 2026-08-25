@@ -189,7 +189,7 @@
   async function startCamera() {
     try {
       stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 1280 } },
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
         audio: false
       });
       video.srcObject = stream;
@@ -228,7 +228,10 @@
     canvas.height = video.videoHeight;
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'dontInvert' });
+    
+    // Intento dual de lectura (Normal e Invertido)
+    const code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'attemptBoth' });
+    
     if (code && code.data && !cooldown) {
       const qrText = code.data.trim();
       if (qrText !== lastQR) {
@@ -244,24 +247,44 @@
   }
 
   function processQR(text) {
-    let data;
-    try { 
-      data = JSON.parse(text); 
+    let articulo = '';
+    let partida = '';
+    let cantidad = '';
+
+    // Intento 1: Parsear como JSON estándar
+    try {
+      const data = JSON.parse(text);
+      articulo = data.articulo ?? data.Articulo ?? data.ARTICULO ?? '';
+      partida  = data.partida  ?? data.Partida  ?? data.PARTIDA  ?? '';
+      cantidad = data.cantidad ?? data.Cantidad ?? data.CANTIDAD ?? '';
     } catch(e) {
+      // Intento 2: Reparar sintaxis si es JSON mal formado
       try {
         const fixedText = text.replace('{"articulo",', '{"articulo":"","');
-        data = JSON.parse(fixedText);
+        const data = JSON.parse(fixedText);
+        articulo = data.articulo ?? data.Articulo ?? data.ARTICULO ?? '';
+        partida  = data.partida  ?? data.Partida  ?? data.PARTIDA  ?? '';
+        cantidad = data.cantidad ?? data.Cantidad ?? data.CANTIDAD ?? '';
       } catch(err) {
-        toast('QR no valido (no es JSON)', 'error'); 
-        return; 
+        // Intento 3: Dividir por comas, saltos de línea o guiones
+        const partes = text.split(/[,;\n|-]/).map(s => s.trim());
+        if (partes.length >= 3) {
+          articulo = partes[0];
+          partida  = partes[1];
+          cantidad = partes[2];
+        } else if (partes.length === 2) {
+          articulo = partes[0];
+          partida  = partes[1];
+        } else {
+          articulo = text;
+        }
       }
     }
 
-    const articulo = data.articulo ?? data.Articulo ?? data.ARTICULO ?? '';
-    const partida  = data.partida  ?? data.Partida  ?? data.PARTIDA  ?? '';
-    const cantidad = data.cantidad ?? data.Cantidad ?? data.CANTIDAD ?? '';
-
-    if (!partida && !cantidad && !articulo) { toast('QR sin campos reconocidos', 'error'); return; }
+    if (!partida && !cantidad && !articulo) { 
+      toast('QR vacio o invalido', 'error'); 
+      return; 
+    }
 
     // Verificar si el modo de edición está activado
     if (chkManualEdit.checked) {
@@ -318,7 +341,7 @@
     document.getElementById('last-scan').style.display = 'block';
     document.getElementById('ls-articulo').textContent = r.articulo || '—';
     document.getElementById('ls-partida').textContent  = r.partida  || '—';
-    document.getElementById('ls-cantidad').textContent = r.cantidad;
+    document.getElementById('ls-cantidad').textContent = r.cantidad || '—';
     document.getElementById('ls-fecha').textContent    = r.fecha;
   }
 
@@ -343,7 +366,7 @@
     const tr = document.createElement('tr');
     if (animate) tr.classList.add('new-row');
     tr.id = 'row-' + idx;
-    tr.innerHTML = '<td>' + escHtml(r.articulo || '—') + '</td><td>' + escHtml(r.partida) + '</td><td><strong>' + escHtml(String(r.cantidad)) + '</strong></td><td style="font-size:.75rem;color:#888">' + escHtml(r.fecha) + '</td><td class="sync-status" id="sync-' + idx + '">' + (r.synced ? '✅' : '⏳') + '</td>';
+    tr.innerHTML = '<td>' + escHtml(r.articulo || '—') + '</td><td>' + escHtml(r.partida || '—') + '</td><td><strong>' + escHtml(String(r.cantidad || '—')) + '</strong></td><td style="font-size:.75rem;color:#888">' + escHtml(r.fecha) + '</td><td class="sync-status" id="sync-' + idx + '">' + (r.synced ? '✅' : '⏳') + '</td>';
     tbody.insertBefore(tr, tbody.firstChild);
   }
 
