@@ -1,0 +1,334 @@
+﻿<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#1a73e8" />
+  <title>QR Inventario</title>
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: "Segoe UI", sans-serif; background: #f0f4f8; color: #1a1a2e; min-height: 100vh; }
+    header { background: #1a73e8; color: white; padding: 14px 16px; display: flex; align-items: center; gap: 10px; box-shadow: 0 2px 8px rgba(0,0,0,.2); position: sticky; top: 0; z-index: 100; }
+    header h1 { font-size: 1.1rem; font-weight: 600; }
+    header .subtitle { font-size: .75rem; opacity: .85; }
+    #scanner-section { padding: 16px; }
+    #camera-container { position: relative; width: 100%; max-width: 480px; margin: 0 auto; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,.15); background: #000; aspect-ratio: 1/1; }
+    #video { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .scan-frame { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 65%; height: 65%; }
+    .scan-frame::before, .scan-frame::after, .scan-frame .c3, .scan-frame .c4 { content: ""; position: absolute; width: 28px; height: 28px; border-color: #fff; border-style: solid; }
+    .scan-frame::before { top:0; left:0; border-width: 4px 0 0 4px; border-radius: 6px 0 0 0; }
+    .scan-frame::after { top:0; right:0; border-width: 4px 4px 0 0; border-radius: 0 6px 0 0; }
+    .scan-frame .c3 { bottom:0; left:0; border-width: 0 0 4px 4px; border-radius: 0 0 0 6px; }
+    .scan-frame .c4 { bottom:0; right:0; border-width: 0 4px 4px 0; border-radius: 0 0 6px 0; }
+    .scan-line { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 62%; height: 2px; background: linear-gradient(90deg, transparent, #1a73e8, #00e5ff, #1a73e8, transparent); animation: scanMove 2s ease-in-out infinite; border-radius: 2px; }
+    @keyframes scanMove { 0%, 100% { transform: translate(-50%, -120%); opacity: .6; } 50% { transform: translate(-50%, 120%); opacity: 1; } }
+    #flash { position: absolute; inset: 0; background: rgba(255,255,255,.5); opacity: 0; pointer-events: none; transition: opacity .15s; }
+    #flash.active { opacity: 1; }
+    #cam-status { text-align: center; margin-top: 10px; font-size: .85rem; color: #555; min-height: 20px; }
+    #cam-status.ok { color: #0a8043; }
+    #cam-status.err { color: #c62828; }
+    #btn-cam { display: block; width: 100%; max-width: 480px; margin: 10px auto 0; padding: 14px; background: #1a73e8; color: white; border: none; border-radius: 12px; font-size: 1rem; font-weight: 600; cursor: pointer; }
+    #btn-cam.stop { background: #e53935; }
+    #last-scan { margin: 12px 16px 0; padding: 14px; background: white; border-radius: 14px; border-left: 5px solid #1a73e8; box-shadow: 0 2px 8px rgba(0,0,0,.08); display: none; }
+    #last-scan h3 { font-size: .8rem; color: #888; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 8px; }
+    #last-scan .fields { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    #last-scan .field label { font-size: .72rem; color: #888; display: block; }
+    #last-scan .field span { font-size: 1rem; font-weight: 700; color: #1a1a2e; }
+    #records-section { padding: 16px; }
+    .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+    .section-header h2 { font-size: .95rem; font-weight: 700; }
+    #badge { background: #1a73e8; color: white; border-radius: 20px; padding: 2px 10px; font-size: .8rem; font-weight: 700; }
+    .table-wrap { background: white; border-radius: 14px; box-shadow: 0 2px 8px rgba(0,0,0,.08); overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: .82rem; }
+    thead th { background: #1a73e8; color: white; padding: 10px; text-align: left; white-space: nowrap; font-weight: 600; }
+    tbody tr { border-bottom: 1px solid #f0f0f0; }
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr.new-row { animation: rowIn .4s ease; }
+    @keyframes rowIn { from { background: #e8f0fe; } to { background: transparent; } }
+    tbody td { padding: 10px; vertical-align: middle; }
+    td.sync-status { text-align: center; font-size: 1rem; }
+    .empty-msg { text-align: center; color: #aaa; padding: 30px; font-size: .9rem; }
+    .action-buttons { display: flex; gap: 10px; margin: 12px 16px 20px; }
+    .action-buttons button { flex: 1; padding: 14px; border: none; border-radius: 12px; font-size: .9rem; font-weight: 600; cursor: pointer; }
+    #btn-sync { background: #0a8043; color: white; }
+    #btn-sync:disabled { background: #aaa; }
+    #btn-clear { background: white; color: #e53935; border: 2px solid #e53935 !important; }
+    #toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(80px); background: #323232; color: white; padding: 12px 24px; border-radius: 24px; font-size: .9rem; z-index: 999; transition: transform .3s ease; white-space: nowrap; max-width: 90vw; text-align: center; }
+    #toast.show { transform: translateX(-50%) translateY(0); }
+    #toast.success { background: #0a8043; }
+    #toast.error { background: #c62828; }
+    #config-section { margin: 0 16px 16px; padding: 14px; background: #fff3e0; border-radius: 14px; border-left: 5px solid #f57c00; }
+    #config-section h3 { font-size: .85rem; font-weight: 700; color: #e65100; margin-bottom: 8px; }
+    #config-section p { font-size: .78rem; color: #555; margin-bottom: 8px; }
+    #url-input { width: 100%; padding: 10px; border: 1.5px solid #ddd; border-radius: 8px; font-size: .82rem; font-family: monospace; }
+    #url-input:focus { outline: none; border-color: #1a73e8; }
+    #btn-save-url { margin-top: 8px; padding: 10px 20px; background: #f57c00; color: white; border: none; border-radius: 8px; font-size: .85rem; font-weight: 600; cursor: pointer; width: 100%; }
+  </style>
+</head>
+<body>
+<header>
+  <div style="font-size:1.4rem">📦</div>
+  <div>
+    <h1>QR Inventario</h1>
+    <div class="subtitle">Escaner para Google Sheets</div>
+  </div>
+</header>
+
+<div id="config-section">
+  <h3>⚙️ URL del Web App (Google Apps Script)</h3>
+  <p>Pega aca la URL de tu Web App desplegada. Ver README para instrucciones.</p>
+  <input type="url" id="url-input" placeholder="https://script.google.com/macros/s/XXXX/exec" />
+  <button id="btn-save-url">💾 Guardar URL</button>
+</div>
+
+<div id="scanner-section">
+  <div id="camera-container">
+    <video id="video" autoplay playsinline muted></video>
+    <div class="scan-frame"><span class="c3"></span><span class="c4"></span></div>
+    <div class="scan-line"></div>
+    <div id="flash"></div>
+  </div>
+  <div id="cam-status">Presiona "Activar Camara" para comenzar</div>
+  <button id="btn-cam">📷 Activar Camara</button>
+</div>
+
+<div id="last-scan">
+  <h3>✅ Ultimo escaneo</h3>
+  <div class="fields">
+    <div class="field"><label>Articulo</label><span id="ls-articulo">—</span></div>
+    <div class="field"><label>Partida</label><span id="ls-partida">—</span></div>
+    <div class="field"><label>Cantidad</label><span id="ls-cantidad">—</span></div>
+    <div class="field"><label>Fecha</label><span id="ls-fecha">—</span></div>
+  </div>
+</div>
+
+<div id="records-section">
+  <div class="section-header">
+    <h2>📋 Registros del dia</h2>
+    <span id="badge">0</span>
+  </div>
+  <div class="table-wrap">
+    <table id="records-table">
+      <thead><tr><th>Articulo</th><th>Partida</th><th>Cant.</th><th>Fecha</th><th>☁️</th></tr></thead>
+      <tbody id="records-body">
+        <tr><td colspan="5" class="empty-msg">Aun no hay registros.<br>Escana un QR para comenzar.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="action-buttons">
+  <button id="btn-sync">☁️ Sincronizar todo</button>
+  <button id="btn-clear">🗑️ Limpiar</button>
+</div>
+
+<div id="toast"></div>
+
+<script>
+  const STORAGE_KEY_URL     = 'qr_inv_script_url';
+  const STORAGE_KEY_RECORDS = 'qr_inv_records';
+  let scriptUrl = localStorage.getItem(STORAGE_KEY_URL) || '';
+  let records   = JSON.parse(localStorage.getItem(STORAGE_KEY_RECORDS) || '[]');
+  const urlInput = document.getElementById('url-input');
+  if (scriptUrl) urlInput.value = scriptUrl;
+
+  document.getElementById('btn-save-url').addEventListener('click', () => {
+    scriptUrl = urlInput.value.trim();
+    localStorage.setItem(STORAGE_KEY_URL, scriptUrl);
+    toast('URL guardada ✓', 'success');
+  });
+
+  const video     = document.getElementById('video');
+  const camStatus = document.getElementById('cam-status');
+  const btnCam    = document.getElementById('btn-cam');
+  const flash     = document.getElementById('flash');
+  let streaming = false, stream = null, lastQR = '', cooldown = false, rafId = null;
+
+  btnCam.addEventListener('click', () => { if (!streaming) startCamera(); else stopCamera(); });
+
+  async function startCamera() {
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 1280 } },
+        audio: false
+      });
+      video.srcObject = stream;
+      await video.play();
+      streaming = true;
+      btnCam.textContent = '⏹ Detener Camara';
+      btnCam.classList.add('stop');
+      camStatus.textContent = '🟢 Camara activa — apunta al codigo QR';
+      camStatus.className = 'ok';
+      rafId = requestAnimationFrame(scanFrame);
+    } catch(e) {
+      camStatus.textContent = '❌ No se pudo acceder a la camara: ' + e.message;
+      camStatus.className = 'err';
+    }
+  }
+
+  function stopCamera() {
+    if (stream) stream.getTracks().forEach(t => t.stop());
+    video.srcObject = null;
+    streaming = false;
+    cancelAnimationFrame(rafId);
+    btnCam.textContent = '📷 Activar Camara';
+    btnCam.classList.remove('stop');
+    camStatus.textContent = 'Camara detenida';
+    camStatus.className = '';
+  }
+
+  const canvas = document.createElement('canvas');
+  const ctx    = canvas.getContext('2d', { willReadFrequently: true });
+
+  function scanFrame() {
+    if (!streaming) return;
+    rafId = requestAnimationFrame(scanFrame);
+    if (video.readyState !== video.HAVE_ENOUGH_DATA) return;
+    canvas.width  = video.videoWidth;
+    canvas.height = video.videoHeight;
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'dontInvert' });
+    if (code && code.data && !cooldown) {
+      const qrText = code.data.trim();
+      if (qrText !== lastQR) {
+        lastQR = qrText;
+        processQR(qrText);
+        flash.classList.add('active');
+        setTimeout(() => flash.classList.remove('active'), 150);
+        try { navigator.vibrate(80); } catch(e) {}
+        cooldown = true;
+        setTimeout(() => { cooldown = false; lastQR = ''; }, 2500);
+      }
+    }
+  }
+
+  function processQR(text) {
+    let data;
+    try { data = JSON.parse(text); } catch(e) { toast('QR no valido (no es JSON)', 'error'); return; }
+    const articulo = data.articulo ?? data.Articulo ?? data.ARTICULO ?? '';
+    const partida  = data.partida  ?? data.Partida  ?? data.PARTIDA  ?? '';
+    const cantidad = data.cantidad ?? data.Cantidad ?? data.CANTIDAD ?? '';
+    const fecha    = formatDate(new Date());
+    if (!partida && !cantidad) { toast('QR sin campos reconocidos', 'error'); return; }
+    const record = { articulo, partida, cantidad, fecha, synced: false };
+    records.push(record);
+    saveLocal();
+    updateLastScan(record);
+    addRowToTable(record, records.length - 1);
+    updateBadge();
+    if (scriptUrl) syncRecord(record, records.length - 1);
+    else toast('⚠️ Configura la URL de Apps Script para sincronizar');
+  }
+
+  function formatDate(d) {
+    const p = n => String(n).padStart(2,'0');
+    return `${p(d.getDate())}/${p(d.getMonth()+1)}/${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`;
+  }
+
+  function updateLastScan(r) {
+    document.getElementById('last-scan').style.display = 'block';
+    document.getElementById('ls-articulo').textContent = r.articulo || '—';
+    document.getElementById('ls-partida').textContent  = r.partida  || '—';
+    document.getElementById('ls-cantidad').textContent = r.cantidad;
+    document.getElementById('ls-fecha').textContent    = r.fecha;
+  }
+
+  function renderTable() {
+    const tbody = document.getElementById('records-body');
+    if (records.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="5" class="empty-msg">Aun no hay registros.<br>Escana un QR para comenzar.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = '';
+    records.slice().reverse().forEach((r, i) => {
+      const idx = records.length - 1 - i;
+      addRowToTable(r, idx, false);
+    });
+    updateBadge();
+  }
+
+  function addRowToTable(r, idx, animate = true) {
+    const tbody = document.getElementById('records-body');
+    const empty = tbody.querySelector('.empty-msg');
+    if (empty) empty.closest('tr').remove();
+    const tr = document.createElement('tr');
+    if (animate) tr.classList.add('new-row');
+    tr.id = 'row-' + idx;
+    tr.innerHTML = '<td>' + escHtml(r.articulo || '—') + '</td><td>' + escHtml(r.partida) + '</td><td><strong>' + escHtml(String(r.cantidad)) + '</strong></td><td style="font-size:.75rem;color:#888">' + escHtml(r.fecha) + '</td><td class="sync-status" id="sync-' + idx + '">' + (r.synced ? '✅' : '⏳') + '</td>';
+    tbody.insertBefore(tr, tbody.firstChild);
+  }
+
+  function updateSyncIcon(idx, ok) {
+    const el = document.getElementById('sync-' + idx);
+    if (el) el.textContent = ok ? '✅' : '❌';
+  }
+
+  function updateBadge() {
+    document.getElementById('badge').textContent = records.length;
+  }
+
+  function escHtml(str) {
+    return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  let toastTimer;
+  function toast(msg, type = '') {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.className = 'show ' + type;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.className = '', 3500);
+  }
+
+  function saveLocal() {
+    localStorage.setItem(STORAGE_KEY_RECORDS, JSON.stringify(records));
+  }
+
+  async function syncRecord(record, idx) {
+    if (!scriptUrl) return;
+    try {
+      await fetch(scriptUrl, {
+        method: 'POST', mode: 'no-cors',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ articulo: record.articulo, partida: record.partida, cantidad: record.cantidad, fecha: record.fecha })
+      });
+      records[idx].synced = true;
+      saveLocal();
+      updateSyncIcon(idx, true);
+    } catch(e) {
+      console.error('Sync error:', e);
+      updateSyncIcon(idx, false);
+    }
+  }
+
+  document.getElementById('btn-sync').addEventListener('click', async () => {
+    if (!scriptUrl) { toast('⚠️ Primero configura la URL del Apps Script', 'error'); return; }
+    const pending = records.filter(r => !r.synced);
+    if (pending.length === 0) { toast('✅ Todo ya sincronizado'); return; }
+    toast('⏳ Sincronizando ' + pending.length + ' registros...');
+    const btn = document.getElementById('btn-sync');
+    btn.disabled = true;
+    for (let i = 0; i < records.length; i++) {
+      if (!records[i].synced) await syncRecord(records[i], i);
+    }
+    btn.disabled = false;
+    toast('✅ Sincronizacion completada', 'success');
+  });
+
+  document.getElementById('btn-clear').addEventListener('click', () => {
+    if (records.length === 0) return;
+    if (!confirm('¿Limpiar todos los registros locales?')) return;
+    records = [];
+    saveLocal();
+    renderTable();
+    document.getElementById('last-scan').style.display = 'none';
+    document.getElementById('badge').textContent = '0';
+    toast('Registros eliminados');
+  });
+
+  renderTable();
+</script>
+</body>
+</html>
