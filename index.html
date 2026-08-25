@@ -184,12 +184,25 @@
 
   let streaming = false, stream = null, lastQR = '', cooldown = false, rafId = null;
 
+  // Detector Nativo del Sistema (Navegadores modernos)
+  let nativeBarcodeDetector = null;
+  if ('BarcodeDetector' in window) {
+    try {
+      nativeBarcodeDetector = new BarcodeDetector({ formats: ['qr_code'] });
+    } catch(e) { nativeBarcodeDetector = null; }
+  }
+
   btnCam.addEventListener('click', () => { if (!streaming) startCamera(); else stopCamera(); });
 
   async function startCamera() {
     try {
       stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+        video: { 
+          facingMode: { ideal: 'environment' }, 
+          width: { ideal: 1920 }, 
+          height: { ideal: 1080 },
+          focusMode: { ideal: 'continuous' }
+        },
         audio: false
       });
       video.srcObject = stream;
@@ -219,30 +232,66 @@
 
   const canvas = document.createElement('canvas');
   const ctx    = canvas.getContext('2d', { willReadFrequently: true });
+  
+  const filterCanvas = document.createElement('canvas');
+  const filterCtx = filterCanvas.getContext('2d', { willReadFrequently: true });
 
-  function scanFrame() {
+  let scanCounter = 0;
+
+  async function scanFrame() {
     if (!streaming) return;
     rafId = requestAnimationFrame(scanFrame);
     if (video.readyState !== video.HAVE_ENOUGH_DATA) return;
+
     canvas.width  = video.videoWidth;
     canvas.height = video.videoHeight;
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    
-    // Intento dual de lectura (Normal e Invertido)
-    const code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'attemptBoth' });
-    
-    if (code && code.data && !cooldown) {
-      const qrText = code.data.trim();
-      if (qrText !== lastQR) {
-        lastQR = qrText;
-        processQR(qrText);
-        flash.classList.add('active');
-        setTimeout(() => flash.classList.remove('active'), 150);
-        try { navigator.vibrate(80); } catch(e) {}
-        cooldown = true;
-        setTimeout(() => { cooldown = false; lastQR = ''; }, 2500);
-      }
+
+    if (cooldown) return;
+
+    // 1. INTENTO CON LECTOR NATIVO DEL NAVEGADOR (Resiste reflejos y brillos)
+    if (nativeBarcodeDetector) {
+      try {
+        const barcodes = await nativeBarcodeDetector.detect(canvas);
+        if (barcodes.length > 0 && barcodes[0].rawValue) {
+          triggerSuccess(barcodes[0].rawValue.trim());
+          return;
+        }
+      } catch (err) {}
+    }
+
+    // 2. INTENTO CON JSQR NORMAL
+    let imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    let code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'attemptBoth' });
+
+    // 3. SI FALLA POR BRILLOS: APLICAR FILTRO DE ALTO CONTRASTE Y BINARIZACIÓN
+    scanCounter++;
+    if (!code && scanCounter % 2 === 0) {
+      filterCanvas.width = canvas.width;
+      filterCanvas.height = canvas.height;
+      
+      // Aplicar filtro de contraste para atenuar reflejos blancos
+      filterCtx.filter = 'contrast(200%) grayscale(100%)';
+      filterCtx.drawImage(canvas, 0, 0);
+      
+      const filteredData = filterCtx.getImageData(0, 0, filterCanvas.width, filterCanvas.height);
+      code = jsQR(filteredData.data, filteredData.width, filteredData.height, { inversionAttempts: 'attemptBoth' });
+    }
+
+    if (code && code.data) {
+      triggerSuccess(code.data.trim());
+    }
+  }
+
+  function triggerSuccess(qrText) {
+    if (qrText !== lastQR) {
+      lastQR = qrText;
+      processQR(qrText);
+      flash.classList.add('active');
+      setTimeout(() => flash.classList.remove('active'), 150);
+      try { navigator.vibrate(80); } catch(e) {}
+      cooldown = true;
+      setTimeout(() => { cooldown = false; lastQR = ''; }, 2500);
     }
   }
 
