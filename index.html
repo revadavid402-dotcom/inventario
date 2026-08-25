@@ -58,12 +58,6 @@
     #toast.show { transform: translateX(-50%) translateY(0); }
     #toast.success { background: #0a8043; }
     #toast.error { background: #c62828; }
-    #config-section { margin: 0 16px 16px; padding: 14px; background: #fff3e0; border-radius: 14px; border-left: 5px solid #f57c00; }
-    #config-section h3 { font-size: .85rem; font-weight: 700; color: #e65100; margin-bottom: 8px; }
-    #config-section p { font-size: .78rem; color: #555; margin-bottom: 8px; }
-    #url-input { width: 100%; padding: 10px; border: 1.5px solid #ddd; border-radius: 8px; font-size: .82rem; font-family: monospace; }
-    #url-input:focus { outline: none; border-color: #1a73e8; }
-    #btn-save-url { margin-top: 8px; padding: 10px 20px; background: #f57c00; color: white; border: none; border-radius: 8px; font-size: .85rem; font-weight: 600; cursor: pointer; width: 100%; }
   </style>
 </head>
 <body>
@@ -74,13 +68,6 @@
     <div class="subtitle">Escaner para Google Sheets</div>
   </div>
 </header>
-
-<div id="config-section">
-  <h3>⚙️ URL del Web App (Google Apps Script)</h3>
-  <p>Pega aca la URL de tu Web App desplegada. Ver README para instrucciones.</p>
-  <input type="url" id="url-input" placeholder="https://script.google.com/macros/s/XXXX/exec" />
-  <button id="btn-save-url">💾 Guardar URL</button>
-</div>
 
 <div id="scanner-section">
   <div id="camera-container">
@@ -126,18 +113,12 @@
 <div id="toast"></div>
 
 <script>
-  const STORAGE_KEY_URL     = 'qr_inv_script_url';
+  // URL por defecto prefijada directamente al Apps Script
+  const DEFAULT_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzYS1f-WfmgQ1TB8uA_eQzyktQwBYhlDY8rlEL5FpepKhpAVhkweErSIS_MDjh5BZkdTA/exec';
   const STORAGE_KEY_RECORDS = 'qr_inv_records';
-  let scriptUrl = localStorage.getItem(STORAGE_KEY_URL) || '';
+  
+  let scriptUrl = DEFAULT_SCRIPT_URL;
   let records   = JSON.parse(localStorage.getItem(STORAGE_KEY_RECORDS) || '[]');
-  const urlInput = document.getElementById('url-input');
-  if (scriptUrl) urlInput.value = scriptUrl;
-
-  document.getElementById('btn-save-url').addEventListener('click', () => {
-    scriptUrl = urlInput.value.trim();
-    localStorage.setItem(STORAGE_KEY_URL, scriptUrl);
-    toast('URL guardada ✓', 'success');
-  });
 
   const video     = document.getElementById('video');
   const camStatus = document.getElementById('cam-status');
@@ -206,20 +187,34 @@
 
   function processQR(text) {
     let data;
-    try { data = JSON.parse(text); } catch(e) { toast('QR no valido (no es JSON)', 'error'); return; }
+    try { 
+      data = JSON.parse(text); 
+    } catch(e) {
+      // Intento de lectura para QRs con el formato {"articulo","partida":"..."}
+      try {
+        const fixedText = text.replace('{"articulo",', '{"articulo":"","');
+        data = JSON.parse(fixedText);
+      } catch(err) {
+        toast('QR no valido (no es JSON)', 'error'); 
+        return; 
+      }
+    }
+
     const articulo = data.articulo ?? data.Articulo ?? data.ARTICULO ?? '';
     const partida  = data.partida  ?? data.Partida  ?? data.PARTIDA  ?? '';
     const cantidad = data.cantidad ?? data.Cantidad ?? data.CANTIDAD ?? '';
     const fecha    = formatDate(new Date());
-    if (!partida && !cantidad) { toast('QR sin campos reconocidos', 'error'); return; }
+
+    if (!partida && !cantidad && !articulo) { toast('QR sin campos reconocidos', 'error'); return; }
+
     const record = { articulo, partida, cantidad, fecha, synced: false };
     records.push(record);
     saveLocal();
     updateLastScan(record);
     addRowToTable(record, records.length - 1);
     updateBadge();
-    if (scriptUrl) syncRecord(record, records.length - 1);
-    else toast('⚠️ Configura la URL de Apps Script para sincronizar');
+    
+    syncRecord(record, records.length - 1);
   }
 
   function formatDate(d) {
@@ -287,10 +282,7 @@
   }
 
   async function syncRecord(record, idx) {
-    if (!scriptUrl) return;
     try {
-      // Usamos text/plain para evitar CORS preflight con Apps Script
-      // (application/json dispara un preflight OPTIONS que Apps Script no soporta)
       await fetch(scriptUrl, {
         method: 'POST',
         mode: 'no-cors',
@@ -302,7 +294,6 @@
           fecha:    record.fecha
         })
       });
-      // no-cors siempre devuelve respuesta "opaque" — asumimos exito si no hay excepcion
       records[idx].synced = true;
       saveLocal();
       updateSyncIcon(idx, true);
@@ -313,7 +304,6 @@
   }
 
   document.getElementById('btn-sync').addEventListener('click', async () => {
-    if (!scriptUrl) { toast('⚠️ Primero configura la URL del Apps Script', 'error'); return; }
     const pending = records.filter(r => !r.synced);
     if (pending.length === 0) { toast('✅ Todo ya sincronizado'); return; }
     toast('⏳ Sincronizando ' + pending.length + ' registros...');
