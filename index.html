@@ -30,11 +30,18 @@
     #cam-status.err { color: #c62828; }
     #btn-cam { display: block; width: 100%; max-width: 480px; margin: 10px auto 0; padding: 14px; background: #1a73e8; color: white; border: none; border-radius: 12px; font-size: 1rem; font-weight: 600; cursor: pointer; }
     #btn-cam.stop { background: #e53935; }
+    
+    /* Toggle opción editar */
+    .edit-option-box { max-width: 480px; margin: 12px auto 0; padding: 10px 14px; background: white; border-radius: 10px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 1px 4px rgba(0,0,0,.05); }
+    .edit-option-box label { font-size: .85rem; font-weight: 600; color: #333; cursor: pointer; display: flex; align-items: center; gap: 8px; }
+    .edit-option-box input[type="checkbox"] { width: 18px; height: 18px; accent-color: #1a73e8; cursor: pointer; }
+
     #last-scan { margin: 12px 16px 0; padding: 14px; background: white; border-radius: 14px; border-left: 5px solid #1a73e8; box-shadow: 0 2px 8px rgba(0,0,0,.08); display: none; }
     #last-scan h3 { font-size: .8rem; color: #888; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 8px; }
     #last-scan .fields { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
     #last-scan .field label { font-size: .72rem; color: #888; display: block; }
     #last-scan .field span { font-size: 1rem; font-weight: 700; color: #1a1a2e; }
+    
     #records-section { padding: 16px; }
     .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
     .section-header h2 { font-size: .95rem; font-weight: 700; }
@@ -58,6 +65,20 @@
     #toast.show { transform: translateX(-50%) translateY(0); }
     #toast.success { background: #0a8043; }
     #toast.error { background: #c62828; }
+
+    /* Modal emergente de Edición */
+    #edit-modal { position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 200; display: none; align-items: center; justify-content: center; padding: 16px; }
+    #edit-modal.open { display: flex; }
+    .modal-content { background: white; width: 100%; max-width: 400px; border-radius: 16px; padding: 20px; box-shadow: 0 10px 25px rgba(0,0,0,.2); }
+    .modal-content h3 { font-size: 1.1rem; margin-bottom: 14px; color: #1a73e8; }
+    .modal-field { margin-bottom: 12px; }
+    .modal-field label { font-size: .78rem; color: #666; font-weight: 600; display: block; margin-bottom: 4px; }
+    .modal-field input { width: 100%; padding: 10px; border: 1.5px solid #ccc; border-radius: 8px; font-size: .95rem; }
+    .modal-field input:focus { outline: none; border-color: #1a73e8; }
+    .modal-btns { display: flex; gap: 10px; margin-top: 18px; }
+    .modal-btns button { flex: 1; padding: 12px; border: none; border-radius: 8px; font-size: .9rem; font-weight: 600; cursor: pointer; }
+    #btn-modal-cancel { background: #f0f0f0; color: #555; }
+    #btn-modal-save { background: #1a73e8; color: white; }
   </style>
 </head>
 <body>
@@ -78,6 +99,11 @@
   </div>
   <div id="cam-status">Presiona "Activar Camara" para comenzar</div>
   <button id="btn-cam">📷 Activar Camara</button>
+
+  <div class="edit-option-box">
+    <label for="chk-manual-edit">✏️ Editar datos antes de guardar</label>
+    <input type="checkbox" id="chk-manual-edit" />
+  </div>
 </div>
 
 <div id="last-scan">
@@ -110,10 +136,32 @@
   <button id="btn-clear">🗑️ Limpiar</button>
 </div>
 
+<!-- Modal Emergente de Edición -->
+<div id="edit-modal">
+  <div class="modal-content">
+    <h3>✏️ Confirmar / Editar Datos</h3>
+    <div class="modal-field">
+      <label>Artículo</label>
+      <input type="text" id="m-articulo" />
+    </div>
+    <div class="modal-field">
+      <label>Partida</label>
+      <input type="text" id="m-partida" />
+    </div>
+    <div class="modal-field">
+      <label>Cantidad</label>
+      <input type="number" id="m-cantidad" />
+    </div>
+    <div class="modal-btns">
+      <button id="btn-modal-cancel">Cancelar</button>
+      <button id="btn-modal-save">💾 Confirmar y Guardar</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 <script>
-  // URL por defecto prefijada directamente al Apps Script
   const DEFAULT_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzYS1f-WfmgQ1TB8uA_eQzyktQwBYhlDY8rlEL5FpepKhpAVhkweErSIS_MDjh5BZkdTA/exec';
   const STORAGE_KEY_RECORDS = 'qr_inv_records';
   
@@ -124,6 +172,16 @@
   const camStatus = document.getElementById('cam-status');
   const btnCam    = document.getElementById('btn-cam');
   const flash     = document.getElementById('flash');
+  const chkManualEdit = document.getElementById('chk-manual-edit');
+  
+  // Elementos Modal
+  const editModal = document.getElementById('edit-modal');
+  const mArticulo = document.getElementById('m-articulo');
+  const mPartida  = document.getElementById('m-partida');
+  const mCantidad = document.getElementById('m-cantidad');
+  const btnModalCancel = document.getElementById('btn-modal-cancel');
+  const btnModalSave   = document.getElementById('btn-modal-save');
+
   let streaming = false, stream = null, lastQR = '', cooldown = false, rafId = null;
 
   btnCam.addEventListener('click', () => { if (!streaming) startCamera(); else stopCamera(); });
@@ -190,7 +248,6 @@
     try { 
       data = JSON.parse(text); 
     } catch(e) {
-      // Intento de lectura para QRs con el formato {"articulo","partida":"..."}
       try {
         const fixedText = text.replace('{"articulo",', '{"articulo":"","');
         data = JSON.parse(fixedText);
@@ -203,11 +260,46 @@
     const articulo = data.articulo ?? data.Articulo ?? data.ARTICULO ?? '';
     const partida  = data.partida  ?? data.Partida  ?? data.PARTIDA  ?? '';
     const cantidad = data.cantidad ?? data.Cantidad ?? data.CANTIDAD ?? '';
-    const fecha    = formatDate(new Date());
 
     if (!partida && !cantidad && !articulo) { toast('QR sin campos reconocidos', 'error'); return; }
 
+    // Verificar si el modo de edición está activado
+    if (chkManualEdit.checked) {
+      openEditModal(articulo, partida, cantidad);
+    } else {
+      saveAndSyncRecord(articulo, partida, cantidad);
+    }
+  }
+
+  function openEditModal(articulo, partida, cantidad) {
+    mArticulo.value = articulo;
+    mPartida.value  = partida;
+    mCantidad.value = cantidad;
+    editModal.classList.add('open');
+  }
+
+  btnModalCancel.addEventListener('click', () => {
+    editModal.classList.remove('open');
+  });
+
+  btnModalSave.addEventListener('click', () => {
+    const art = mArticulo.value.trim();
+    const par = mPartida.value.trim();
+    const cant = mCantidad.value.trim();
+
+    if (!par && !cant && !art) {
+      toast('Los campos no pueden estar vacíos', 'error');
+      return;
+    }
+
+    editModal.classList.remove('open');
+    saveAndSyncRecord(art, par, cant);
+  });
+
+  function saveAndSyncRecord(articulo, partida, cantidad) {
+    const fecha = formatDate(new Date());
     const record = { articulo, partida, cantidad, fecha, synced: false };
+    
     records.push(record);
     saveLocal();
     updateLastScan(record);
